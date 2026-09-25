@@ -64,6 +64,41 @@
     </div>
   </div>
 
+  <!-- ── Skill Tree / Question Selector Modal ──────────────────────────── -->
+  <div id="tree-overlay" class="modal-overlay">
+    <div class="modal tree-modal">
+      <button id="tree-modal-close" class="modal-close" aria-label="Close">✕</button>
+
+      <div class="tree-modal-header">
+        <div class="modal-title">🗺️ SQL Roadmap & Skill Tree</div>
+        <div class="tree-filter-bar">
+          <button class="filter-chip active" data-filter="all">All Topics</button>
+          <button class="filter-chip" data-filter="starred">⭐ Starred</button>
+          <button class="filter-chip" data-filter="unsolved">⏳ Unsolved</button>
+        </div>
+      </div>
+
+      <div class="tree-split-container">
+        <!-- Left: Interactive Visual Skill Tree Graph -->
+        <div class="tree-graph-wrapper">
+          <div class="tree-graph-header">Topic Dependency Map</div>
+          <div class="tree-graph-canvas" id="tree-graph-canvas">
+            <svg id="tree-svg-connectors"></svg>
+            <div class="tree-nodes-layout" id="tree-nodes-layout">
+              <!-- Rendered by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Topic Problem List & Details -->
+        <div class="topic-detail-wrapper" id="topic-detail-wrapper">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ── Main App ────────────────────────────────────────────────────── -->
   <div id="app">
 
@@ -73,9 +108,9 @@
         <span class="bolt">⚡</span> SQL_FORGE
       </div>
 
-      <div class="level-progress">
+      <div class="level-progress clickable" id="btn-header-level" title="Click to open Skill Tree & Question Selector">
         <span class="level-label" id="level-label">
-          LVL 1 <span class="level-name">Basic SELECT</span>
+          LVL 1 <span class="level-name">Basic SELECT</span> ▾
         </span>
         <div class="progress-track">
           <div class="progress-fill" id="progress-fill" style="width:0%"></div>
@@ -98,6 +133,7 @@
       </div>
 
       <div class="header-actions">
+        <button class="btn btn-secondary btn-sm" id="btn-tree-toggle" title="Open Skill Tree & Question Selector">🗺️ Skill Tree</button>
         <button class="icon-btn" id="btn-stats" title="View Stats">📈</button>
       </div>
     </header>

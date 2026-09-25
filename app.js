@@ -19,6 +19,7 @@ let state = {
   currentLevel: 1,
   currentQuestionId: null,
   solvedQuestions: [],        // IDs of correctly answered questions
+  starredQuestions: [],       // IDs of bookmarked questions
   correctAtLevel: {},         // { level: count }
   totalCorrect: 0,
   totalAttempts: 0,
@@ -26,6 +27,9 @@ let state = {
   bestStreak: 0,
   attemptsPerQuestion: {},    // { questionId: attemptCount }
 };
+
+let selectedTreeLevel = 1;
+let treeFilter = 'all';
 
 let SQL = null;       // sql.js module
 let db = null;        // current sql.js Database instance
@@ -323,6 +327,31 @@ function bindEvents() {
   document.getElementById('modal-close').addEventListener('click', hideStatsModal);
   document.getElementById('stats-overlay').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) hideStatsModal();
+  });
+
+  // Skill Tree & Question Selector bindings
+  document.getElementById('btn-tree-toggle').addEventListener('click', showTreeModal);
+  document.getElementById('btn-header-level').addEventListener('click', showTreeModal);
+  document.getElementById('tree-modal-close').addEventListener('click', hideTreeModal);
+  document.getElementById('tree-overlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) hideTreeModal();
+  });
+
+  // Filter chips in Skill Tree
+  document.querySelectorAll('.tree-filter-bar .filter-chip').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      document.querySelectorAll('.tree-filter-bar .filter-chip').forEach(c => c.classList.remove('active'));
+      e.target.classList.add('active');
+      treeFilter = e.target.dataset.filter;
+      renderTopicDetail(selectedTreeLevel);
+    });
+  });
+
+  // Redraw SVG connectors on window resize if tree is open
+  window.addEventListener('resize', () => {
+    if (document.getElementById('tree-overlay').classList.contains('visible')) {
+      drawTreeConnectors();
+    }
   });
 }
 
@@ -754,4 +783,268 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+
+// ─── Skill Tree & Question Selector ───────────────────────────────────────
+
+function showTreeModal() {
+  selectedTreeLevel = state.currentLevel || 1;
+  document.getElementById('tree-overlay').classList.add('visible');
+  renderSkillTree();
+  renderTopicDetail(selectedTreeLevel);
+  // Delay SVG line drawing until modal layout settles
+  setTimeout(drawTreeConnectors, 50);
+}
+
+function hideTreeModal() {
+  document.getElementById('tree-overlay').classList.remove('visible');
+}
+
+function renderSkillTree() {
+  const container = document.getElementById('tree-nodes-layout');
+  if (!container) return;
+
+  // Tiers layout structure matching Skill Tree DAG
+  const tiers = [
+    [1],
+    [2],
+    [3, 4],
+    [5, 6],
+    [7]
+  ];
+
+  let html = '';
+  for (const row of tiers) {
+    html += `<div class="tree-node-row">`;
+    for (const lvl of row) {
+      const total = QUESTIONS.filter(q => q.level === lvl).length;
+      const solved = QUESTIONS.filter(q => q.level === lvl && state.solvedQuestions.includes(q.id)).length;
+      const pct = Math.round((solved / total) * 100);
+      const isCompleted = solved === total && total > 0;
+      const isSelected = lvl === selectedTreeLevel;
+
+      let cls = 'tree-node';
+      if (isCompleted) cls += ' completed';
+      if (isSelected) cls += ' selected';
+
+      html += `
+        <div class="${cls}" data-level="${lvl}" onclick="selectTreeLevel(${lvl})">
+          <div class="node-level-tag">
+            <span>LVL ${lvl}</span>
+            <span>${solved}/${total}</span>
+          </div>
+          <div class="node-title">${LEVEL_NAMES[lvl]}</div>
+          <div class="node-progress-bar">
+            <div class="node-progress-fill" style="width: ${pct}%"></div>
+          </div>
+        </div>
+      `;
+    }
+    html += `</div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+function drawTreeConnectors() {
+  const svg = document.getElementById('tree-svg-connectors');
+  const canvas = document.getElementById('tree-graph-canvas');
+  if (!svg || !canvas) return;
+
+  const canvasRect = canvas.getBoundingClientRect();
+  svg.setAttribute('width', canvas.clientWidth);
+  svg.setAttribute('height', canvas.scrollHeight);
+
+  // Connection dependencies: [fromLevel, toLevel]
+  const connections = [
+    [1, 2],
+    [2, 3],
+    [2, 4],
+    [3, 5],
+    [4, 5],
+    [4, 6],
+    [5, 7],
+    [6, 7]
+  ];
+
+  let svgHtml = '';
+  for (const [fromLvl, toLvl] of connections) {
+    const fromEl = canvas.querySelector(`.tree-node[data-level="${fromLvl}"]`);
+    const toEl = canvas.querySelector(`.tree-node[data-level="${toLvl}"]`);
+
+    if (!fromEl || !toEl) continue;
+
+    const fromRect = fromEl.getBoundingClientRect();
+    const toRect = toEl.getBoundingClientRect();
+
+    const x1 = fromRect.left + fromRect.width / 2 - canvasRect.left + canvas.scrollLeft;
+    const y1 = fromRect.bottom - canvasRect.top + canvas.scrollTop;
+    const x2 = toRect.left + toRect.width / 2 - canvasRect.left + canvas.scrollLeft;
+    const y2 = toRect.top - canvasRect.top + canvas.scrollTop;
+
+    // Smooth bezier curve
+    const controlY1 = y1 + (y2 - y1) * 0.5;
+    const controlY2 = y2 - (y2 - y1) * 0.5;
+    const pathData = `M ${x1} ${y1} C ${x1} ${controlY1}, ${x2} ${controlY2}, ${x2} ${y2}`;
+
+    const fromSolved = QUESTIONS.filter(q => q.level === fromLvl && state.solvedQuestions.includes(q.id)).length;
+    const fromTotal = QUESTIONS.filter(q => q.level === fromLvl).length;
+
+    let pathCls = 'tree-path-line';
+    if (fromSolved === fromTotal && fromTotal > 0) pathCls += ' completed';
+    else if (fromSolved > 0) pathCls += ' active';
+
+    svgHtml += `<path d="${pathData}" class="${pathCls}" />`;
+  }
+
+  svg.innerHTML = svgHtml;
+}
+
+function selectTreeLevel(lvl) {
+  selectedTreeLevel = lvl;
+  renderSkillTree();
+  renderTopicDetail(lvl);
+  setTimeout(drawTreeConnectors, 20);
+}
+
+function renderTopicDetail(lvl) {
+  const container = document.getElementById('topic-detail-wrapper');
+  if (!container) return;
+
+  let questions = QUESTIONS.filter(q => q.level === lvl);
+
+  // Apply filters
+  if (treeFilter === 'starred') {
+    questions = questions.filter(q => state.starredQuestions && state.starredQuestions.includes(q.id));
+  } else if (treeFilter === 'unsolved') {
+    questions = questions.filter(q => !state.solvedQuestions.includes(q.id));
+  }
+
+  const totalAtLevel = QUESTIONS.filter(q => q.level === lvl).length;
+  const solvedAtLevel = QUESTIONS.filter(q => q.level === lvl && state.solvedQuestions.includes(q.id)).length;
+  const isAllComplete = solvedAtLevel === totalAtLevel && totalAtLevel > 0;
+
+  const prereqsMap = {
+    1: 'None (Getting Started)',
+    2: 'Level 1: Basic SELECT',
+    3: 'Level 2: Filtering & Sorting',
+    4: 'Level 2: Filtering & Sorting',
+    5: 'Level 3: Table Joins & Level 4: Aggregations',
+    6: 'Level 4: Aggregations & Grouping',
+    7: 'Level 5: Subqueries & Level 6: Window Functions'
+  };
+
+  let html = `
+    <div class="topic-detail-header">
+      <div class="topic-info-main">
+        <div class="topic-title-lg">Level ${lvl}: ${LEVEL_NAMES[lvl]}</div>
+        <div class="topic-subtitle">${QUESTIONS.filter(q => q.level === lvl).length} practice problems</div>
+      </div>
+      <div class="topic-completion-badge ${isAllComplete ? 'complete' : ''}">
+        ${solvedAtLevel} / ${totalAtLevel}
+      </div>
+    </div>
+    <div class="topic-prereqs">
+      <span>Prerequisites:</span>
+      <span style="color: var(--text-primary); font-weight: 500">${prereqsMap[lvl]}</span>
+    </div>
+    <div class="problem-list-container">
+  `;
+
+  if (questions.length === 0) {
+    html += `
+      <div style="text-align:center; padding: 40px; color: var(--text-muted); font-family: var(--font-mono)">
+        No questions match the current filter.
+      </div>
+    `;
+  } else {
+    html += `
+      <table class="problem-table">
+        <thead>
+          <tr>
+            <th style="width: 50px">Status</th>
+            <th style="width: 45px">Star</th>
+            <th>Problem</th>
+            <th style="width: 90px">Difficulty</th>
+            <th style="width: 80px">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    for (const q of questions) {
+      const isSolved = state.solvedQuestions.includes(q.id);
+      const isAttempted = state.attemptsPerQuestion[q.id] > 0 && !isSolved;
+      const isStarred = state.starredQuestions && state.starredQuestions.includes(q.id);
+
+      let diffCls = 'easy';
+      if (q.level >= 3 && q.level <= 5) diffCls = 'medium';
+      if (q.level >= 6) diffCls = 'hard';
+
+      let statusHtml = '<span class="status-icon unsolved" title="Unattempted">○</span>';
+      if (isSolved) {
+        statusHtml = '<span class="status-icon solved" title="Solved">✓</span>';
+      } else if (isAttempted) {
+        statusHtml = '<span class="status-icon attempted" title="Attempted">⏳</span>';
+      }
+
+      html += `
+        <tr class="problem-row ${isSolved ? 'solved' : ''}">
+          <td style="text-align:center">${statusHtml}</td>
+          <td style="text-align:center">
+            <button class="star-btn ${isStarred ? 'active' : ''}" onclick="toggleStarQuestion(${q.id}, event)" title="${isStarred ? 'Unstar' : 'Star'}">
+              ${isStarred ? '★' : '☆'}
+            </button>
+          </td>
+          <td class="problem-title-cell" onclick="jumpToQuestion(${q.id})">
+            Q${q.id}. ${escapeHtml(q.title)}
+          </td>
+          <td>
+            <span class="difficulty-badge ${diffCls}">${diffCls}</span>
+          </td>
+          <td>
+            <button class="btn btn-secondary btn-solve" onclick="jumpToQuestion(${q.id})">
+              ${isSolved ? 'Review' : 'Solve'}
+            </button>
+          </td>
+        </tr>
+      `;
+    }
+
+    html += `
+        </tbody>
+      </table>
+    `;
+  }
+
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+function toggleStarQuestion(questionId, event) {
+  if (event) event.stopPropagation();
+  if (!state.starredQuestions) state.starredQuestions = [];
+
+  const idx = state.starredQuestions.indexOf(questionId);
+  if (idx >= 0) {
+    state.starredQuestions.splice(idx, 1);
+  } else {
+    state.starredQuestions.push(questionId);
+  }
+
+  saveProgress();
+  renderTopicDetail(selectedTreeLevel);
+}
+
+function jumpToQuestion(questionId) {
+  const q = QUESTIONS.find(x => x.id === questionId);
+  if (!q) return;
+
+  state.currentLevel = q.level;
+  saveProgress();
+
+  loadQuestion(questionId);
+  hideTreeModal();
+  showToast(`Loaded Q${q.id}: ${q.title}`);
 }
