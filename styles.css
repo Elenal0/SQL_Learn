@@ -1291,6 +1291,7 @@ main {
   box-shadow: 0 8px 30px rgba(0, 229, 255, 0.2);
   transition: all 0.25s ease;
 }
+.ai-fab.hidden { display: none !important; }
 .ai-fab:hover {
   transform: translateY(-3px) scale(1.04);
   background: var(--bg-card-alt);

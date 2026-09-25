@@ -20,6 +20,7 @@ let state = {
   currentQuestionId: null,
   solvedQuestions: [],        // IDs of correctly answered questions
   starredQuestions: [],       // IDs of bookmarked questions
+  aiEnabled: true,            // Toggle visibility of AI Tutor widget
   correctAtLevel: {},         // { level: count }
   totalCorrect: 0,
   totalAttempts: 0,
@@ -355,6 +356,7 @@ function bindEvents() {
   });
 
   // AI Chatbot bindings
+  document.getElementById('btn-toggle-ai').addEventListener('click', toggleAiTutorVisibility);
   document.getElementById('btn-ai-toggle').addEventListener('click', toggleAiChat);
   document.getElementById('btn-ai-close').addEventListener('click', closeAiChat);
   document.getElementById('btn-ai-config').addEventListener('click', toggleAiConfig);
@@ -670,6 +672,17 @@ function updateHeader() {
   document.getElementById('stat-streak').textContent = state.streak;
   document.getElementById('stat-solved').textContent = `${solvedQ}/${totalQ}`;
   document.getElementById('stat-accuracy').textContent = `${accuracy}%`;
+
+  // AI Tutor Visibility
+  const aiBtn = document.getElementById('btn-toggle-ai');
+  const aiFab = document.getElementById('btn-ai-toggle');
+  if (state.aiEnabled === undefined) state.aiEnabled = true;
+  
+  if (aiBtn) aiBtn.textContent = state.aiEnabled ? '🤖 AI Tutor: ON' : '🤖 AI Tutor: OFF';
+  if (aiFab) {
+    if (state.aiEnabled) aiFab.classList.remove('hidden');
+    else aiFab.classList.add('hidden');
+  }
 }
 
 function showFeedback(correct, message) {
@@ -1075,6 +1088,18 @@ let aiState = {
   messages: [],
   apiKey: localStorage.getItem('sql_forge_ai_key') || ''
 };
+
+function toggleAiTutorVisibility() {
+  state.aiEnabled = !state.aiEnabled;
+  saveProgress();
+  updateHeader();
+  if (!state.aiEnabled) {
+    closeAiChat();
+    showToast('🤖 AI Tutor Widget Disabled');
+  } else {
+    showToast('🤖 AI Tutor Widget Enabled');
+  }
+}
 
 function toggleAiChat() {
   aiState.isOpen ? closeAiChat() : openAiChat();
