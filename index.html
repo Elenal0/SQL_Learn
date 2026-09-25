@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL Forge — Interactive SQL Trainer</title>
+  <meta name="description" content="Master SQL from beginner to advanced with interactive practice questions and real-time in-browser query execution.">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- CodeMirror 5 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/display/placeholder.min.css">
+
+  <!-- App Styles -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ── Loading Screen ──────────────────────────────────────────────── -->
+  <div id="loading-screen">
+    <div class="spinner"></div>
+    <p>Initializing SQL engine...</p>
+  </div>
+
+  <!-- ── Toast Notification ──────────────────────────────────────────── -->
+  <div id="toast" class="toast"></div>
+
+  <!-- ── Stats Modal ─────────────────────────────────────────────────── -->
+  <div id="stats-overlay" class="modal-overlay">
+    <div class="modal">
+      <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
+      <div class="modal-title">📊 Your Stats</div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="stats-solved">0/35</div>
+          <div class="stat-label">Solved</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stats-accuracy">0%</div>
+          <div class="stat-label">Accuracy</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stats-streak">0</div>
+          <div class="stat-label">Best Streak</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stats-attempts">0</div>
+          <div class="stat-label">Attempts</div>
+        </div>
+      </div>
+
+      <div class="panel-title" style="margin-bottom:10px">Level Progress</div>
+      <div id="level-badges" class="level-badges"></div>
+
+      <div class="modal-actions">
+        <button id="btn-reset" class="btn btn-secondary">↺ Reset Progress</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Main App ────────────────────────────────────────────────────── -->
+  <div id="app">
+
+    <!-- Header -->
+    <header>
+      <div class="logo">
+        <span class="bolt">⚡</span> SQL_FORGE
+      </div>
+
+      <div class="level-progress">
+        <span class="level-label" id="level-label">
+          LVL 1 <span class="level-name">Basic SELECT</span>
+        </span>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat">
+          <span class="icon">🔥</span>
+          <span class="value" id="stat-streak">0</span>
+        </div>
+        <div class="stat">
+          <span class="icon">📊</span>
+          <span class="value" id="stat-solved">0/35</span>
+        </div>
+        <div class="stat">
+          <span class="icon">🎯</span>
+          <span class="value" id="stat-accuracy">0%</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button class="icon-btn" id="btn-stats" title="View Stats">📈</button>
+      </div>
+    </header>
+
+    <!-- Main 2×2 Grid -->
+    <main>
+
+      <!-- Top-Left: Question -->
+      <div class="panel" id="question-panel">
+        <div class="panel-header">
+          <span class="panel-title">Question</span>
+          <button class="btn btn-ghost btn-sm" id="btn-skip" title="Skip to next question">Skip →</button>
+        </div>
+        <div class="panel-body">
+          <div class="question-meta" id="question-meta"></div>
+          <h1 class="question-title" id="question-title"></h1>
+          <p class="question-prompt" id="question-prompt"></p>
+
+          <div class="hint-box" id="hint-box">
+            <div class="hint-label">💡 Hint</div>
+            <div id="hint-content"></div>
+          </div>
+
+          <div class="solution-box" id="solution-box">
+            <div class="solution-label">📝 Reference Solution</div>
+            <pre id="solution-content"></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top-Right: Editor -->
+      <div class="panel" id="editor-panel">
+        <div class="panel-header">
+          <span class="panel-title">SQL Editor</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span class="shortcut-hint">Ctrl+Enter: Run</span>
+            <span class="shortcut-hint">Ctrl+Shift+Enter: Submit</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="editor-wrapper"></div>
+        </div>
+        <div class="editor-actions">
+          <button class="btn btn-ghost" id="btn-hint">💡 Hint</button>
+          <div class="spacer"></div>
+          <button class="btn btn-secondary" id="btn-run">▶ Run</button>
+          <button class="btn btn-primary" id="btn-submit">✓ Submit</button>
+          <button class="btn btn-success" id="btn-next" style="display:none">Next →</button>
+        </div>
+      </div>
+
+      <!-- Bottom-Left: Schema / Data -->
+      <div class="panel" id="schema-panel">
+        <div class="panel-header">
+          <span class="panel-title">Tables & Data</span>
+        </div>
+        <div class="panel-body" id="schema-content">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- Bottom-Right: Results -->
+      <div class="panel" id="results-panel">
+        <div class="panel-header">
+          <span class="panel-title">Results</span>
+        </div>
+        <div id="feedback-banner" class="feedback-banner"></div>
+        <div class="panel-body" id="result-output">
+          <div class="result-empty">
+            <span style="font-size:1.8rem;opacity:0.3">⌨</span>
+            <p class="prompt-text">Run a query to see results here</p>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ── Scripts ─────────────────────────────────────────────────────── -->
+  <!-- sql.js (SQLite compiled to WASM) -->
+  <script src="https://sql.js.org/dist/sql-wasm.js"></script>
+
+  <!-- CodeMirror core + SQL mode -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/display/placeholder.min.js"></script>
+
+  <!-- App -->
+  <script src="questions.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>
