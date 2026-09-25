@@ -353,6 +353,24 @@ function bindEvents() {
       drawTreeConnectors();
     }
   });
+
+  // AI Chatbot bindings
+  document.getElementById('btn-ai-toggle').addEventListener('click', toggleAiChat);
+  document.getElementById('btn-ai-close').addEventListener('click', closeAiChat);
+  document.getElementById('btn-ai-config').addEventListener('click', toggleAiConfig);
+  document.getElementById('btn-save-key').addEventListener('click', saveAiApiKey);
+  document.getElementById('ai-chat-send').addEventListener('click', handleAiSend);
+  document.getElementById('ai-chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleAiSend();
+  });
+
+  // Prompt chips
+  document.querySelectorAll('.ai-chat-suggestions .chip-btn').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const type = chip.dataset.prompt;
+      handleAiChipClick(type);
+    });
+  });
 }
 
 function handleRun() {
@@ -1047,4 +1065,268 @@ function jumpToQuestion(questionId) {
   loadQuestion(questionId);
   hideTreeModal();
   showToast(`Loaded Q${q.id}: ${q.title}`);
+}
+
+
+// ─── AI SQL Assistant Chatbot Logic ─────────────────────────────────────────
+
+let aiState = {
+  isOpen: false,
+  messages: [],
+  apiKey: localStorage.getItem('sql_forge_ai_key') || ''
+};
+
+function toggleAiChat() {
+  aiState.isOpen ? closeAiChat() : openAiChat();
+}
+
+function openAiChat() {
+  aiState.isOpen = true;
+  document.getElementById('ai-chat-drawer').classList.add('visible');
+  document.getElementById('ai-api-key-input').value = aiState.apiKey;
+
+  if (aiState.messages.length === 0) {
+    const q = QUESTIONS.find(x => x.id === state.currentQuestionId);
+    let welcome = `Hello! 👋 I'm your **SQL AI Tutor**.`;
+    if (q) {
+      welcome += ` Currently tracking **Q${q.id}: ${escapeHtml(q.title)}**.\n\nAsk me how a clause works, how to approach this task, or click one of the preset prompts below!`;
+    }
+    addAiMessage('bot', welcome);
+  }
+  
+  scrollToBottomAiChat();
+  document.getElementById('ai-chat-input').focus();
+}
+
+function closeAiChat() {
+  aiState.isOpen = false;
+  document.getElementById('ai-chat-drawer').classList.remove('visible');
+}
+
+function toggleAiConfig() {
+  const panel = document.getElementById('ai-config-panel');
+  panel.classList.toggle('visible');
+}
+
+function saveAiApiKey() {
+  const val = document.getElementById('ai-api-key-input').value.trim();
+  aiState.apiKey = val;
+  localStorage.setItem('sql_forge_ai_key', val);
+  document.getElementById('ai-config-panel').classList.remove('visible');
+  showToast(val ? '🔑 Custom API key saved!' : 'Switched to built-in AI Tutor engine.');
+}
+
+function addAiMessage(sender, text) {
+  aiState.messages.push({ sender, text, time: Date.now() });
+
+  const container = document.getElementById('ai-chat-messages');
+  if (!container) return;
+
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble ${sender}`;
+  
+  // Format markdown bolding, inline code, and code blocks
+  let formatted = escapeHtml(text)
+    .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/```sql\n([\s\S]*?)\n```/gi, '<pre>$1</pre>')
+    .replace(/```([\s\S]*?)\n```/gi, '<pre>$1</pre>')
+    .replace(/\n/g, '<br>');
+
+  bubble.innerHTML = formatted;
+  container.appendChild(bubble);
+  scrollToBottomAiChat();
+}
+
+function showAiTyping() {
+  const container = document.getElementById('ai-chat-messages');
+  const indicator = document.createElement('div');
+  indicator.id = 'ai-typing-indicator';
+  indicator.className = 'chat-bubble bot typing-indicator';
+  indicator.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+  container.appendChild(indicator);
+  scrollToBottomAiChat();
+}
+
+function removeAiTyping() {
+  const el = document.getElementById('ai-typing-indicator');
+  if (el) el.remove();
+}
+
+function scrollToBottomAiChat() {
+  const container = document.getElementById('ai-chat-messages');
+  if (container) container.scrollTop = container.scrollHeight;
+}
+
+function handleAiSend() {
+  const input = document.getElementById('ai-chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  addAiMessage('user', text);
+  processAiQuery(text);
+}
+
+function handleAiChipClick(type) {
+  const q = QUESTIONS.find(x => x.id === state.currentQuestionId);
+  const userSql = editor ? editor.getValue().trim() : '';
+
+  if (type === 'explain-question') {
+    addAiMessage('user', '💡 Explain this question to me');
+    if (!q) return addAiMessage('bot', 'No question active right now.');
+    
+    let resp = `**Question Breakdown for Q${q.id}: ${escapeHtml(q.title)}**\n\n`;
+    resp += `🎯 **Goal:** ${escapeHtml(q.prompt.replace(/<[^>]*>?/gm, ''))}\n\n`;
+    resp += `📊 **Schema:** Uses the \`${q.schema}\` database.\n\n`;
+    resp += `💡 **How to approach:**\n`;
+    resp += `1. Look at the tables under the **Tables & Data** tab to check column names.\n`;
+    resp += `2. Identify which columns you need to retrieve (\`SELECT\`).\n`;
+    resp += `3. Determine if you need filtering (\`WHERE\`), grouping (\`GROUP BY\`), or joining tables (\`JOIN\`).`;
+    addAiMessage('bot', resp);
+  } 
+  else if (type === 'explain-code') {
+    addAiMessage('user', '🔍 Explain my query line-by-line');
+    if (!userSql) {
+      addAiMessage('bot', 'Your SQL editor is empty right now! Type some SQL into the editor first, then click "Explain My Code".');
+      return;
+    }
+    const explanation = analyzeAndExplainSql(userSql, q);
+    addAiMessage('bot', explanation);
+  }
+  else if (type === 'nudge') {
+    addAiMessage('user', '❓ Give me a hint/nudge');
+    if (!q) return;
+    addAiMessage('bot', `💡 **Nudge:** ${escapeHtml(q.hint)}`);
+  }
+  else if (type === 'syntax') {
+    addAiMessage('user', '📖 SQL Syntax Cheat Sheet');
+    let help = `**Quick SQL Reference:**\n\n`;
+    help += `• **Filter rows:** \`SELECT * FROM t WHERE col = 'val';\`\n`;
+    help += `• **Group & Aggregate:** \`SELECT dept_id, AVG(salary) FROM emp GROUP BY dept_id;\`\n`;
+    help += `• **Join tables:** \`SELECT e.name, d.name FROM emp e JOIN dept d ON e.dept_id = d.id;\`\n`;
+    help += `• **Window Function:** \`ROW_NUMBER() OVER (PARTITION BY dept_id ORDER BY salary DESC)\`\n`;
+    help += `• **CTE:** \`WITH cte AS (SELECT ...) SELECT * FROM cte;\``;
+    addAiMessage('bot', help);
+  }
+}
+
+async function processAiQuery(text) {
+  showAiTyping();
+
+  // If custom Gemini API key is provided, use live Gemini API!
+  if (aiState.apiKey) {
+    try {
+      const q = QUESTIONS.find(x => x.id === state.currentQuestionId);
+      const userSql = editor ? editor.getValue().trim() : '';
+
+      const promptSystem = `You are a friendly, encouraging SQL Tutor AI.
+Current Question Context:
+- Question ID: Q${q ? q.id : 'N/A'}
+- Title: ${q ? q.title : 'N/A'}
+- Description: ${q ? q.prompt : 'N/A'}
+- Database Schema: ${q ? q.schema : 'N/A'}
+- Current User Query in Editor: ${userSql || 'None'}
+- Reference Solution: ${q ? q.expectedQuery : 'N/A'}
+
+User Asked: "${text}"
+
+Provide a concise, helpful, and formatted response. Use code blocks for SQL snippets.`;
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiState.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptSystem }] }]
+        })
+      });
+
+      const data = await res.json();
+      removeAiTyping();
+      
+      if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+        addAiMessage('bot', data.candidates[0].content.parts[0].text);
+        return;
+      }
+    } catch (e) {
+      console.warn('Gemini API call failed, falling back to local engine:', e);
+    }
+  }
+
+  // Fallback to built-in Intelligent SQL Tutor Engine
+  setTimeout(() => {
+    removeAiTyping();
+    const q = QUESTIONS.find(x => x.id === state.currentQuestionId);
+    const userSql = editor ? editor.getValue().trim() : '';
+    const reply = generateBuiltInAiResponse(text, userSql, q);
+    addAiMessage('bot', reply);
+  }, 400);
+}
+
+function analyzeAndExplainSql(sql, q) {
+  let lines = sql.split('\n').filter(l => l.trim().length > 0);
+  let resp = `**Line-by-Line Breakdown of Your Query:**\n\n`;
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+    let explanation = '';
+
+    if (/^SELECT/i.test(trimmed)) {
+      explanation = 'Specifies which columns or expressions to retrieve from the dataset.';
+    } else if (/^FROM/i.test(trimmed)) {
+      explanation = 'Indicates the primary table to query data from.';
+    } else if (/^WHERE/i.test(trimmed)) {
+      explanation = 'Filters individual rows before any grouping or aggregation takes place.';
+    } else if (/^(INNER|LEFT|RIGHT|FULL)?\s*JOIN/i.test(trimmed)) {
+      explanation = 'Combines rows from another table based on a matching column condition (\`ON\`).';
+    } else if (/^GROUP BY/i.test(trimmed)) {
+      explanation = 'Groups rows that have the same values into summary rows (e.g. per department).';
+    } else if (/^HAVING/i.test(trimmed)) {
+      explanation = 'Filters grouped summary rows after \`GROUP BY\` aggregation.';
+    } else if (/^ORDER BY/i.test(trimmed)) {
+      explanation = 'Sorts the final output rows ascending or descending.';
+    } else if (/^LIMIT/i.test(trimmed)) {
+      explanation = 'Restricts the maximum number of rows returned in the result set.';
+    } else if (/^WITH/i.test(trimmed)) {
+      explanation = 'Defines a Common Table Expression (CTE) or temporary result set.';
+    } else {
+      explanation = 'SQL clause or expression processing data.';
+    }
+
+    resp += `**Line ${idx + 1}:** \`${escapeHtml(trimmed)}\`\n└ ${explanation}\n\n`;
+  });
+
+  return resp;
+}
+
+function generateBuiltInAiResponse(text, userSql, q) {
+  const lower = text.toLowerCase();
+
+  if (lower.includes('round')) {
+    return `**How ROUND() works in SQL:**\n\n\`ROUND(number, decimals)\` rounds a numeric value to a specified number of decimal places.\n\n**Example:**\n\`\`\`sql\nSELECT name, ROUND(salary / 12.0, 2) AS monthly_salary\nFROM employees;\n\`\`\``;
+  }
+  if (lower.includes('avg') || lower.includes('average')) {
+    return `**How AVG() works in SQL:**\n\n\`AVG(column)\` calculates the arithmetic mean of numeric values in a group (skipping NULL values).\n\n**Example:**\n\`\`\`sql\nSELECT department_id, AVG(salary) AS avg_salary\nFROM employees\nGROUP BY department_id;\n\`\`\``;
+  }
+  if (lower.includes('count')) {
+    return `**COUNT(*) vs COUNT(col):**\n\n• \`COUNT(*)\`: Counts total rows matching criteria (including NULLs).\n• \`COUNT(column)\`: Counts non-NULL values in that specific column.`;
+  }
+  if (lower.includes('join')) {
+    return `**SQL JOIN Types:**\n\n• \`INNER JOIN\`: Returns rows with matching values in both tables.\n• \`LEFT JOIN\`: Returns all rows from left table, and matched rows from right table (filling NULLs if missing).\n\n**Example:**\n\`\`\`sql\nSELECT e.name, d.name AS dept\nFROM employees e\nJOIN departments d ON e.department_id = d.id;\n\`\`\``;
+  }
+  if (lower.includes('group by') || lower.includes('having')) {
+    return `**GROUP BY vs HAVING:**\n\n• \`WHERE\` filters rows *before* aggregation.\n• \`GROUP BY\` collates rows into groups.\n• \`HAVING\` filters aggregated summary rows *after* grouping.\n\n**Example:**\n\`\`\`sql\nSELECT department_id, COUNT(*) AS emp_count\nFROM employees\nGROUP BY department_id\nHAVING COUNT(*) > 2;\n\`\`\``;
+  }
+  if (lower.includes('rank') || lower.includes('row_number')) {
+    return `**Window Functions (Ranking):**\n\n• \`ROW_NUMBER()\`: Sequential integer (1, 2, 3, 4)\n• \`RANK()\`: Handles ties with gaps (1, 2, 2, 4)\n• \`DENSE_RANK()\`: Handles ties without gaps (1, 2, 2, 3)\n\n**Example:**\n\`\`\`sql\nSELECT name, salary,\n  DENSE_RANK() OVER (ORDER BY salary DESC) as salary_rank\nFROM employees;\n\`\`\``;
+  }
+  if (lower.includes('cte') || lower.includes('with')) {
+    return `**Common Table Expressions (CTEs):**\n\nA CTE creates a temporary named result set using the \`WITH\` clause:\n\n\`\`\`sql\nWITH HighEarners AS (\n  SELECT * FROM employees WHERE salary > 80000\n)\nSELECT name, salary FROM HighEarners;\n\`\`\``;
+  }
+  if (userSql && (lower.includes('my code') || lower.includes('error') || lower.includes('wrong') || lower.includes('check'))) {
+    return analyzeAndExplainSql(userSql, q);
+  }
+
+  // Default fallback answer
+  return `I can help with SQL syntax, clause explanations (\`SELECT\`, \`JOIN\`, \`GROUP BY\`, \`WINDOW\`), line-by-line breakdowns of your query, or hints for **Q${q ? q.id : ''}**!\n\nTry asking: *"What does GROUP BY do?"* or *"Explain my query"*.`;
 }
